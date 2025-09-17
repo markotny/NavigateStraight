@@ -12,10 +12,15 @@ namespace NavigateStraight
 	{
 		/// <summary>
 		/// Find the definition files for selected symbol and navigate to it.
-		/// - If caret is on a declaration and there are exactly two files, switch directly to the other file.
-		/// - If caret is on a declaration and there are multiple parts, delegate to the built-in picker (shows ALL parts, including generated).
-		/// - Otherwise, prefer user-authored files by ignoring generated files (*.g.cs, *.g.i.cs). If exactly one remains, navigate directly.
-		/// - Falls back to __Edit.GoToDefinition__ in other cases.
+		/// Rules (manual and generated treated equally, focus on exact file-name match):
+		/// 1) Caret NOT on declaration:
+		///    - Go to exact match if it exists (TypeName.cs / TypeName.g.cs / TypeName.g.i.cs).
+		///    - Else, if exactly one manual file exists, go there.
+		///    - Else, fallback to __Edit.GoToDefinition__.
+		/// 2) Caret ON declaration:
+		///    - Go to exact match if it exists and is not the current file.
+		///    - Else, if there are exactly two files, switch to the other file.
+		///    - Else, fallback to __Edit.GoToDefinition__.
 		/// </summary>
 		protected override async Task ExecuteAsync(OleMenuCmdEventArgs e)
 		{
@@ -87,11 +92,54 @@ namespace NavigateStraight
 					return;
 				}
 
-				// Special-case: caret is on declaration
-				if (IsCaretOnAnyDeclaration(locations, view, textView))
+				var onDeclaration = IsCaretOnAnyDeclaration(locations, view, textView);
+				var typeName = GetPreferredTypeName(symbol);
+				var exactMatches = FindAllExactMatches(locations, typeName);
+
+				if (!onDeclaration)
 				{
-					// If there are exactly two distinct files, jump straight to the other file.
-					var currentPath = view.FilePath ?? string.Empty;
+					// 1) Not on declaration
+					if (exactMatches.Length == 1)
+					{
+						await NavigateToAsync(exactMatches[0]).ConfigureAwait(false);
+						return;
+					}
+					else if (exactMatches.Length > 1)
+					{
+						// Ambiguous exact matches -> fallback
+						await VS.Commands.ExecuteAsync("Edit.GoToDefinition");
+						return;
+					}
+
+					// No exact match: if there's exactly one manual file, go there; else fallback
+					var manual = locations.Where(l => !IsGeneratedFile(l.SourceTree?.FilePath)).ToArray();
+					if (manual.Length == 1)
+					{
+						await NavigateToAsync(manual[0]).ConfigureAwait(false);
+						return;
+					}
+
+					await VS.Commands.ExecuteAsync("Edit.GoToDefinition");
+					return;
+				}
+				else
+				{
+					// 2) On declaration
+					if (exactMatches.Length > 0)
+					{
+						// Prefer any exact match that isn't the current file
+						var currentPath = view.FilePath ?? string.Empty;
+						var target = exactMatches.FirstOrDefault(l => !IsSamePath(l.GetLineSpan().Path, currentPath));
+						if (target != null)
+						{
+							await NavigateToAsync(target).ConfigureAwait(false);
+							return;
+						}
+						// If all exact matches are the current file, fall through to two-file toggle/fallback
+					}
+
+					// Exactly two distinct files? Toggle to the other one.
+					var current = view.FilePath ?? string.Empty;
 					var distinctFiles = locations
 						.Select(l => l.GetLineSpan().Path)
 						.Where(p => !string.IsNullOrEmpty(p))
@@ -100,7 +148,7 @@ namespace NavigateStraight
 
 					if (distinctFiles.Length == 2)
 					{
-						var target = locations.FirstOrDefault(l => !IsSamePath(l.GetLineSpan().Path, currentPath));
+						var target = locations.FirstOrDefault(l => !IsSamePath(l.GetLineSpan().Path, current));
 						if (target != null)
 						{
 							await NavigateToAsync(target).ConfigureAwait(false);
@@ -108,37 +156,10 @@ namespace NavigateStraight
 						}
 					}
 
-					// Otherwise (more than two, or two locations in the same file), show the built-in picker.
-					if (locations.Length > 1)
-					{
-						await VS.Commands.ExecuteAsync("Edit.GoToDefinition");
-						return;
-					}
-				}
-
-				// Otherwise, filter out generated files (*.g.cs, *.g.i.cs)
-				var nonGenerated = locations
-					.Where(l =>
-					{
-						var path = l.SourceTree?.FilePath;
-						return !IsGeneratedFile(path);
-					})
-					.ToArray();
-
-				if (nonGenerated.Length == 0)
-				{
+					// Fallback to built-in
 					await VS.Commands.ExecuteAsync("Edit.GoToDefinition");
 					return;
 				}
-
-				if (nonGenerated.Length == 1)
-				{
-					await NavigateToAsync(nonGenerated[0]).ConfigureAwait(false);
-					return;
-				}
-
-				// Multiple user-authored locations: let VS show the standard picker
-				await VS.Commands.ExecuteAsync("Edit.GoToDefinition");
 			}
 			catch
 			{
@@ -157,6 +178,30 @@ namespace NavigateStraight
 		private static bool IsSamePath(string? a, string? b) =>
 			!string.IsNullOrEmpty(a) && !string.IsNullOrEmpty(b) &&
 			string.Equals(a, b, System.StringComparison.OrdinalIgnoreCase);
+
+		private static string? GetPreferredTypeName(ISymbol symbol)
+		{
+			// Prefer declared type name; otherwise use containing type; fallback to symbol name
+			if (symbol is INamedTypeSymbol nts) return nts.Name;
+			return symbol.ContainingType?.Name ?? symbol.Name;
+		}
+
+		private static Location[] FindAllExactMatches(Location[] locations, string? typeName)
+		{
+			if (string.IsNullOrEmpty(typeName)) return [];
+			return locations
+				.Where(l =>
+				{
+					var path = l.SourceTree?.FilePath;
+					if (string.IsNullOrEmpty(path)) return false;
+					var fileName = Path.GetFileName(path);
+					// Treat manual and generated equally, allow exact TypeName.cs / .g.cs / .g.i.cs
+					return fileName.Equals(typeName + ".cs", System.StringComparison.OrdinalIgnoreCase)
+						|| fileName.Equals(typeName + ".g.cs", System.StringComparison.OrdinalIgnoreCase)
+						|| fileName.Equals(typeName + ".g.i.cs", System.StringComparison.OrdinalIgnoreCase);
+				})
+				.ToArray();
+		}
 
 		private static async Task NavigateToAsync(Location location)
 		{

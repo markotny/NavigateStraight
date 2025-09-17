@@ -12,7 +12,7 @@ namespace NavigateStraight
         public const string Name = "NavigateStraight";
         public const string Description = @"Navigates straight to class definition ignoring any generated files.";
         public const string Language = "en-US";
-        public const string Version = "1.0";
+        public const string Version = "1.0.1";
         public const string Author = "Marcin Kotas";
         public const string Tags = "";
         public const bool IsPreview = false;
