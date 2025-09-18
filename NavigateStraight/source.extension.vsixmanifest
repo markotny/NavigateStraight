@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <PackageManifest Version="2.0.0" xmlns="http://schemas.microsoft.com/developer/vsx-schema/2011" xmlns:d="http://schemas.microsoft.com/developer/vsx-schema-design/2011">
     <Metadata>
-        <Identity Id="NavigateStraight.1832fb0f-c7d9-4a37-88ad-f9dc9455f87c" Version="1.0.1" Language="en-US" Publisher="Marcin Kotas" />
+        <Identity Id="NavigateStraight.1832fb0f-c7d9-4a37-88ad-f9dc9455f87c" Version="1.0.4" Language="en-US" Publisher="Marcin Kotas" />
         <DisplayName>NavigateStraight</DisplayName>
         <Description xml:space="preserve">Navigates straight to class definition ignoring any generated files.</Description>
         <Icon>Resources\Icon.png</Icon>

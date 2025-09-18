@@ -101,11 +101,19 @@ namespace NavigateStraight
 					// 1) Not on declaration
 					if (exactMatches.Length == 1)
 					{
-						await NavigateToAsync(exactMatches[0]).ConfigureAwait(false);
+                        await NavigateToAsync(exactMatches[0]).ConfigureAwait(false);
 						return;
 					}
 					else if (exactMatches.Length > 1)
 					{
+                        // Ambiguous exact matches -> see if one of them is manual
+                        var manualExact = exactMatches.Where(l => !IsGeneratedFile(l.SourceTree?.FilePath)).ToArray();
+                        if (manualExact.Length == 1)
+                        {
+                            await NavigateToAsync(manualExact[0]).ConfigureAwait(false);
+                            return;
+                        }
+
 						// Ambiguous exact matches -> fallback
 						await VS.Commands.ExecuteAsync("Edit.GoToDefinition");
 						return;
@@ -115,7 +123,7 @@ namespace NavigateStraight
 					var manual = locations.Where(l => !IsGeneratedFile(l.SourceTree?.FilePath)).ToArray();
 					if (manual.Length == 1)
 					{
-						await NavigateToAsync(manual[0]).ConfigureAwait(false);
+                        await NavigateToAsync(manual[0]).ConfigureAwait(false);
 						return;
 					}
 
@@ -133,7 +141,6 @@ namespace NavigateStraight
 						if (target != null)
 						{
 							await NavigateToAsync(target).ConfigureAwait(false);
-							return;
 						}
 						// If all exact matches are the current file, fall through to two-file toggle/fallback
 					}
